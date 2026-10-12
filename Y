@@ -1,0 +1,1701 @@
+-- NEXORA GIANT ROBOT v3 | ไฟล์ 1/6 : ปุ่ม + ตัวแปรกลาง (รันก่อน)
+local Players = game:GetService("Players")
+local TS = game:GetService("TweenService")
+local lp = Players.LocalPlayer
+
+pcall(function()
+	if _G.NXR then
+		if _G.NXR.State and _G.NXR.State.Suit and _G.NXR.Remove then _G.NXR.Remove() end
+		if _G.NXR.Gui then _G.NXR.Gui:Destroy() end
+	end
+end)
+
+_G.NXG = _G.NXG or {}
+local N = _G.NXG
+N.Ready = false
+if N.Gui then pcall(function() N.Gui:Destroy() end) end
+if N.R and N.R.Model then pcall(function() N.R.Model:Destroy() end) end
+N.R = nil
+N.Mode = nil
+N.S = {Called = false, Landed = false, Riding = false, Flying = false, Jet = false, Busy = false}
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "NEXORA_GiantUI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 50
+local ok, host = pcall(function() return gethui and gethui() end)
+gui.Parent = (ok and host) or lp:WaitForChild("PlayerGui")
+N.Gui = gui
+
+local BG = Color3.fromRGB(14, 14, 18)
+local BGRED = Color3.fromRGB(70, 8, 14)
+local WHITE = Color3.fromRGB(255, 255, 255)
+local NEON = Color3.fromRGB(255, 30, 50)
+local GREY = Color3.fromRGB(140, 140, 150)
+N.Btn, N.Pos, N.Off, N.Stroke, N.CoolTok = {}, {}, {}, {}, {}
+
+-- ชื่อสกิลตามโหมด (ปุ่มบนสุดกลางจอ)
+N.Names = {
+	robot = {"ขีปนาวุธ", "กระแทกพื้น", "พุ่งทะยาน", "ฟันดาบ", "ลูกพลัง", "เลเซอร์ตา"},
+	jet = {"ปืนกล", "โล่พลัง", "เบิร์นเนอร์", "ขีปนาวุธ", "ระเบิดพรม"},
+}
+
+local function make(key, text, size, ts, anchor, pos, off)
+	local b = Instance.new("TextButton")
+	b.Size = size
+	b.AnchorPoint = anchor
+	b.Position = pos
+	b.BackgroundColor3 = BG
+	b.BackgroundTransparency = 0.05
+	b.AutoButtonColor = false
+	b.Text = text
+	b.TextColor3 = WHITE
+	b.Font = Enum.Font.SourceSansBold
+	b.TextSize = ts
+	b.TextScaled = false
+	b.TextWrapped = true
+	b.TextStrokeColor3 = Color3.new(0, 0, 0)
+	b.TextStrokeTransparency = 0.3
+	b.Visible = false
+	b:SetAttribute("Base", text)
+	b.Parent = gui
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+	local st = Instance.new("UIStroke", b)
+	st.Color = NEON
+	st.Thickness = 2
+	st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	N.Pos[key], N.Off[key], N.Stroke[key] = pos, off, st
+	b.MouseEnter:Connect(function()
+		TS:Create(st, TweenInfo.new(0.15), {Thickness = 4}):Play()
+	end)
+	b.MouseLeave:Connect(function()
+		TS:Create(st, TweenInfo.new(0.15), {Thickness = 2}):Play()
+	end)
+	N.Btn[key] = b
+end
+
+-- ปุ่มควบคุม: คอลัมน์ขวา
+local function side(key, text, slot)
+	make(key, text, UDim2.new(0, 150, 0, 48), 26, Vector2.new(1, 0.5),
+		UDim2.new(1, -10, 0.5, 80 - slot * 56), Vector2.new(300, 0))
+end
+side("call", "เรียกหุ่น", 0)
+side("ride", "ขี่หุ่น", 0)
+side("dismiss", "เก็บหุ่น", 1)
+side("dismount", "ลงจากหุ่น", 0)
+side("fly", "บิน", 1)
+side("jet", "แปลงเจ็ท", 2)
+N.Btn.jet.BackgroundColor3 = BGRED
+
+-- ปุ่มสกิล 6 ปุ่ม: แถวบนสุดกลางจอ
+for i = 1, 6 do
+	make("s" .. i, "", UDim2.new(0, 112, 0, 50), 19, Vector2.new(0.5, 0),
+		UDim2.new(0.5, (i - 3.5) * 118, 0, 8), Vector2.new(0, -90))
+end
+
+local function pop(key, show)
+	local b = N.Btn[key]
+	if b.Visible == show then return end
+	b.Visible = show
+	if show then
+		local p, o = N.Pos[key], N.Off[key]
+		b.Position = UDim2.new(p.X.Scale, p.X.Offset + o.X, p.Y.Scale, p.Y.Offset + o.Y)
+		TS:Create(b, TweenInfo.new(0.35, Enum.EasingStyle.Back), {Position = p}):Play()
+	end
+end
+
+function N.Refresh()
+	local S = N.S
+	local idle = not S.Busy
+	local mode = S.Jet and "jet" or "robot"
+	local names = N.Names[mode]
+	if N.Mode ~= mode then
+		N.Mode = mode
+		for i = 1, 6 do
+			local k = "s" .. i
+			local b = N.Btn[k]
+			N.CoolTok[k] = (N.CoolTok[k] or 0) + 1
+			b.Text = names[i] or ""
+			b:SetAttribute("Base", names[i] or "")
+			b.TextColor3 = WHITE
+			N.Stroke[k].Color = NEON
+		end
+	end
+	local show = {
+		call = idle and not S.Called,
+		ride = idle and S.Landed and not S.Riding,
+		dismiss = idle and S.Landed and not S.Riding,
+		dismount = idle and S.Riding and not S.Jet,
+		fly = idle and S.Riding and not S.Jet,
+		jet = idle and S.Riding,
+	}
+	for i = 1, 6 do show["s" .. i] = idle and S.Riding and names[i] ~= nil end
+	for k in pairs(N.Btn) do pop(k, show[k] == true) end
+	local f = N.Btn.fly
+	f.Text = S.Flying and "หยุดบิน" or "บิน"
+	f.BackgroundColor3 = S.Flying and NEON or BG
+	N.Btn.jet.Text = S.Jet and "แปลงเป็นหุ่น" or "แปลงเจ็ท"
+end
+
+-- คูลดาวน์: ชื่อสกิล + เลขวินาทีนับถอยหลัง
+function N.Cool(key, sec)
+	local b, st = N.Btn[key], N.Stroke[key]
+	local base = b:GetAttribute("Base")
+	N.CoolTok[key] = (N.CoolTok[key] or 0) + 1
+	local tok = N.CoolTok[key]
+	task.spawn(function()
+		local t0 = os.clock()
+		b.TextColor3 = GREY
+		st.Color = GREY
+		while true do
+			if N.CoolTok[key] ~= tok then return end
+			local left = sec - (os.clock() - t0)
+			if left <= 0 then break end
+			b.Text = base .. "\n" .. string.format("%.1f", left)
+			task.wait(0.1)
+		end
+		b.Text = base
+		b.TextColor3 = WHITE
+		st.Color = NEON
+	end)
+end
+
+local function bind(key, fn)
+	N.Btn[key].Activated:Connect(function()
+		local f = N[fn]
+		if f then f() end
+	end)
+end
+bind("call", "Call")
+bind("ride", "Ride")
+bind("dismiss", "Dismiss")
+bind("dismount", "Dismount")
+bind("fly", "ToggleFly")
+bind("jet", "Transform")
+for i = 1, 6 do
+	N.Btn["s" .. i].Activated:Connect(function()
+		if N.Skill then N.Skill(i) end
+	end)
+end
+
+N.Ready = true
+N.Refresh()
+-- NEXORA GIANT ROBOT v3 | ไฟล์ 2/6 : สร้างหุ่น (ดาบแดง ปืนแขนซ้าย ปีกใหญ่) + ร่างเครื่องบินเจ็ท
+local RS = game:GetService("RunService")
+repeat task.wait() until _G.NXG and _G.NXG.Ready
+local N = _G.NXG
+local CF, V3 = CFrame.new, Vector3.new
+local SC = 2.4 -- ขนาดหุ่น (ยิ่งมากยิ่งใหญ่)
+N.SCALE = SC
+
+local BLACK = Color3.fromRGB(14, 14, 18)
+local GUN = Color3.fromRGB(40, 42, 52)
+local SILVER = Color3.fromRGB(130, 134, 148)
+local NEON = Color3.fromRGB(255, 25, 45)
+local GLASS = Color3.fromRGB(40, 12, 16)
+local NM = Enum.Material.Neon
+local LENS = {8, 10, 12, 12, 10, 8} -- ความยาวปีกแต่ละใบ (ใหญ่ขึ้น)
+local FLOOR = 9.6
+
+local function wingC0(s, i, len, t)
+	local function lerp(a, b) return a + (b - a) * t end
+	local roll = lerp(62 + (i - 1) * 3, 40 - (i - 1) * 14)
+	local yaw = lerp(14, 8 + (i - 1) * 7)
+	return CF(s * 1.8 * SC, 5.4 * SC, 2.6 * SC)
+		* CFrame.Angles(0, -math.rad(yaw) * s, math.rad(roll) * s)
+		* CF(s * len * 0.25 * SC, 0, 0)
+end
+
+function N.Build()
+	local M = Instance.new("Model")
+	M.Name = "NEXORA_Giant"
+	local RP, JP, RL, JL = {}, {}, {}, {}
+	local grp = "R" -- กลุ่มชิ้นส่วนที่กำลังสร้าง: R = ร่างหุ่น, J = ร่างเจ็ท
+
+	local function mk(name, size, color, mat, shape)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = size * SC
+		p.Color = color
+		p.Material = mat or Enum.Material.Metal
+		p.CanCollide = false
+		p.CanTouch = false
+		p.CanQuery = false
+		p.Massless = true
+		p.Anchored = false
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		if shape then p.Shape = shape end
+		p.Parent = M
+		if grp == "R" then RP[#RP + 1] = p else JP[#JP + 1] = p end
+		return p
+	end
+	local root = mk("Root", V3(4, 1.6, 3), BLACK)
+	root.Massless = false
+	M.PrimaryPart = root
+	local function weld(a, b, c0)
+		local w = Instance.new("Weld")
+		w.Part0 = a
+		w.Part1 = b
+		w.C0 = c0
+		w.Parent = b
+		return w
+	end
+	local function put(base, name, size, pos, color, mat, rot, shape)
+		local p = mk(name, size, color, mat, shape)
+		weld(base, p, CF(pos * SC) * (rot or CF()))
+		return p
+	end
+	local function light(part, range, bright)
+		local l = Instance.new("PointLight")
+		l.Color = NEON
+		l.Range = range
+		l.Brightness = bright
+		l.Parent = part
+		if grp == "R" then RL[#RL + 1] = l else JL[#JL + 1] = l end
+	end
+
+	local R = {Model = M, Root = root, J = {}, Wings = {}, Pods = {}, Thr = {}, JetThr = {}, JetGuns = {},
+		RobotParts = RP, JetParts = JP, RobotLights = RL, JetLights = JL, Form = "robot",
+		Floor = FLOOR * SC}
+	local cyl = Enum.PartType.Cylinder
+	local face90 = CFrame.Angles(0, math.rad(90), 0)
+
+	----------------------------------------------------------------
+	-- ร่างหุ่น: ลำตัว
+	----------------------------------------------------------------
+	put(root, "Waist", V3(4.4, 0.7, 3.2), V3(0, 0.5, 0), SILVER)
+	put(root, "Abs", V3(3.4, 1.8, 2.6), V3(0, 1.5, 0), GUN)
+	for _, y in ipairs({1.0, 1.5, 2.0}) do
+		put(root, "AbsLine", V3(2.8, 0.1, 0.08), V3(0, y, -1.33), NEON, NM)
+	end
+	put(root, "Chest", V3(6.6, 4.4, 4.0), V3(0, 4.3, 0), BLACK)
+	put(root, "ChestTop", V3(5.8, 0.8, 3.6), V3(0, 6.6, 0.1), SILVER)
+	put(root, "Window", V3(2.0, 1.3, 0.3), V3(0, 5.1, -2.05), GLASS, Enum.Material.Glass)
+	put(root, "WindowEdge", V3(2.2, 0.1, 0.35), V3(0, 5.8, -2.05), NEON, NM)
+	put(root, "CoreRing", V3(0.25, 1.7, 1.7), V3(0, 3.2, -2.05), SILVER, nil, face90, cyl)
+	local core = put(root, "Core", V3(0.35, 1.2, 1.2), V3(0, 3.2, -2.1), NEON, NM, face90, cyl)
+	light(core, 40, 4)
+	put(root, "Pack", V3(4.6, 3.8, 1.8), V3(0, 4.6, 2.8), GUN)
+	put(root, "PackN", V3(3.8, 0.15, 0.1), V3(0, 5.2, 3.72), NEON, NM)
+
+	for _, s in ipairs({1, -1}) do
+		-- แผ่นเกราะอก
+		put(root, "ChestPlate", V3(2.2, 3.4, 0.4), V3(s * 2.3, 4.4, -2.1), GUN, nil, CFrame.Angles(0, s * 0.22, 0))
+		put(root, "PlateN1", V3(0.12, 3.2, 0.1), V3(s * 1.2, 4.4, -2.3), NEON, NM)
+		put(root, "PlateN2", V3(0.14, 3.2, 0.1), V3(s * 3.4, 4.4, -2.0), NEON, NM)
+		put(root, "VLine", V3(0.3, 2.0, 0.2), V3(s * 1.0, 2.2, -1.4), NEON, NM, CFrame.Angles(0, 0, -s * 0.45))
+		-- ไหล่ใหญ่ + หนาม
+		put(root, "Shoulder", V3(3.6, 1.8, 3.8), V3(s * 4.5, 5.8, 0), BLACK)
+		put(root, "ShCap", V3(3.8, 0.45, 4.0), V3(s * 4.5, 6.8, 0), SILVER)
+		put(root, "ShNeon", V3(3.65, 0.15, 3.85), V3(s * 4.5, 4.95, 0), NEON, NM)
+		put(root, "Spike", V3(0.5, 2.8, 0.9), V3(s * 5.4, 7.8, 0), NEON, NM, CFrame.Angles(0, 0, -s * 0.4))
+		put(root, "Spike2", V3(0.4, 2.0, 0.7), V3(s * 4.2, 7.6, 1.0), SILVER, nil, CFrame.Angles(0.3, 0, -s * 0.15))
+		R.Pods[#R.Pods + 1] = put(root, "Pod", V3(1.8, 1.2, 3), V3(s * 3.2, 7.9, 0.8), GUN)
+		put(root, "PodN", V3(1.4, 0.15, 0.1), V3(s * 3.2, 7.9, -0.72), NEON, NM)
+		-- ฐานติดปีก
+		put(root, "WingMount", V3(1.6, 1.8, 1.4), V3(s * 1.8, 5.4, 2.6), GUN)
+		put(root, "WingMountN", V3(0.2, 1.6, 0.2), V3(s * 2.6, 5.4, 2.0), NEON, NM)
+	end
+
+	----------------------------------------------------------------
+	-- หัว: หมวกเหล็ก ตาดุ ปากเหล็ก เขายาวพุ่งไปด้านหลัง
+	----------------------------------------------------------------
+	put(root, "Neck", V3(1.4, 1.0, 1.4), V3(0, 7.2, 0), GUN)
+	put(root, "Head", V3(2.4, 2.0, 2.4), V3(0, 8.2, 0), BLACK)
+	put(root, "Helmet", V3(2.7, 0.6, 2.7), V3(0, 9.3, 0), GUN)
+	put(root, "VisorRidge", V3(2.9, 0.3, 0.8), V3(0, 9.0, -1.2), SILVER)
+	put(root, "FacePlate", V3(2.0, 1.4, 0.25), V3(0, 8.0, -1.28), GUN)
+	put(root, "NoseRidge", V3(0.25, 0.9, 0.3), V3(0, 8.0, -1.5), SILVER)
+	put(root, "MouthGuard", V3(1.3, 0.55, 0.3), V3(0, 7.45, -1.38), SILVER)
+	for i = -2, 2 do
+		put(root, "Teeth", V3(0.07, 0.4, 0.06), V3(i * 0.24, 7.45, -1.56), NEON, NM)
+	end
+	put(root, "Gem", V3(0.3, 0.3, 0.12), V3(0, 9.0, -1.62), NEON, NM, CFrame.Angles(0, 0, math.rad(45)))
+	put(root, "Crest", V3(0.3, 2.0, 2.6), V3(0, 10.2, 0.4), SILVER, nil, CFrame.Angles(0.35, 0, 0))
+	put(root, "CrestN", V3(0.34, 0.15, 2.4), V3(0, 11.15, 0.75), NEON, NM, CFrame.Angles(0.35, 0, 0))
+	for _, s in ipairs({1, -1}) do
+		local eye = put(root, "Eye", V3(0.9, 0.22, 0.15), V3(s * 0.55, 8.25, -1.43), NEON, NM, CFrame.Angles(0, 0, s * 0.45))
+		if not R.Eye then R.Eye = eye; light(eye, 25, 3) end
+		put(root, "Horn", V3(0.25, 3.2, 0.45), V3(s * 1.0, 10.0, 0.5), SILVER, nil, CFrame.Angles(0.5, 0, -s * 0.35))
+		put(root, "HornTip", V3(0.2, 0.9, 0.35), V3(s * 1.45, 11.3, 1.35), NEON, NM, CFrame.Angles(0.5, 0, -s * 0.35))
+		put(root, "Jaw", V3(0.4, 0.9, 1.1), V3(s * 1.15, 7.6, -0.7), GUN, nil, CFrame.Angles(0, s * 0.2, 0))
+		put(root, "Cheek", V3(0.25, 0.9, 0.7), V3(s * 1.3, 8.1, -0.4), GUN, nil, CFrame.Angles(0, 0, s * 0.15))
+		put(root, "EarGlow", V3(0.12, 0.5, 0.4), V3(s * 1.45, 8.2, 0.2), NEON, NM)
+		put(root, "Antenna", V3(0.1, 2.4, 0.1), V3(s * 1.5, 10.0, -0.5), NEON, NM, CFrame.Angles(0, 0, -s * 0.2))
+		put(root, "HeadFin", V3(0.25, 0.25, 2.4), V3(s * 1.35, 8.2, 1.6), NEON, NM)
+	end
+
+	-- เครื่องยนต์หลัง
+	for _, s in ipairs({1, -1}) do
+		put(root, "Engine", V3(0.8, 2.4, 2.4), V3(s * 1.5, 4.0, 4.0), BLACK, nil, face90, cyl)
+		put(root, "EngineIn", V3(0.5, 1.6, 1.6), V3(s * 1.5, 4.0, 4.5), NEON, NM, face90, cyl)
+		R.Thr[#R.Thr + 1] = put(root, "Thr", V3(0.9, 0.6, 0.9), V3(s * 1.5, 2.0, 3.6), GUN)
+	end
+	R.Seat = put(root, "Seat", V3(1, 1, 1), V3(0, 4.2, 0.3), BLACK)
+	R.Seat.Transparency = 1
+	R.Seat:SetAttribute("Keep", true)
+
+	----------------------------------------------------------------
+	-- แขน (ขวา = ดาบแดง, ซ้าย = ปืนใหญ่) + ขา
+	----------------------------------------------------------------
+	local function limb(name, pos)
+		local pv = mk(name, V3(0.3, 0.3, 0.3), BLACK)
+		pv.Transparency = 1
+		pv:SetAttribute("Keep", true)
+		local c0 = CF(pos * SC)
+		R.J[name] = {w = weld(root, pv, c0), c0 = c0}
+		return pv
+	end
+	for _, d in ipairs({{"R", 1}, {"L", -1}}) do
+		local n, s = d[1], d[2]
+		local a = limb(n .. "Arm", V3(s * 4.4, 5.0, 0))
+		put(a, "UArm", V3(2.0, 3.2, 2.0), V3(0, -1.8, 0), GUN)
+		put(a, "UBand", V3(2.1, 0.2, 2.1), V3(0, -0.6, 0), NEON, NM)
+		put(a, "Elbow", V3(1.6, 1.6, 1.6), V3(0, -3.6, 0), SILVER, nil, nil, Enum.PartType.Ball)
+		if n == "L" then
+			-- ปืนใหญ่แขนซ้าย
+			put(a, "FArm", V3(2.6, 3.4, 2.8), V3(0, -5.4, 0), BLACK)
+			put(a, "FStripe", V3(0.3, 2.0, 2.4), V3(s * 1.45, -5.4, 0), NEON, NM)
+			put(a, "CannonBody", V3(1.9, 1.9, 2.6), V3(0, -5.4, -2.4), GUN)
+			put(a, "CannonBar", V3(1.1, 1.1, 3.6), V3(0, -5.4, -5.0), BLACK)
+			put(a, "CannonRing1", V3(0.3, 1.6, 1.6), V3(0, -5.4, -4.0), NEON, NM, face90, cyl)
+			put(a, "CannonRing2", V3(0.3, 1.6, 1.6), V3(0, -5.4, -5.2), NEON, NM, face90, cyl)
+			R.Muzzle = put(a, "Muzzle", V3(0.8, 0.8, 0.4), V3(0, -5.4, -7.0), NEON, NM)
+			light(R.Muzzle, 20, 2)
+		else
+			put(a, "FArm", V3(2.3, 3.2, 2.5), V3(0, -5.4, 0), BLACK)
+			put(a, "FStripe", V3(0.3, 2.0, 2.1), V3(s * 1.2, -5.4, 0), NEON, NM)
+			-- ดาบแดงนีออน
+			local th = 0.5
+			local rt = CFrame.Angles(th, 0, 0)
+			put(a, "Grip", V3(0.45, 0.45, 2.2), V3(0, -7.46, -0.26), BLACK, nil, rt)
+			put(a, "Pommel", V3(0.75, 0.75, 0.75), V3(0, -8.08, 0.88), NEON, NM, nil, Enum.PartType.Ball)
+			put(a, "Guard", V3(3.4, 0.5, 0.7), V3(0, -6.83, -1.40), SILVER, nil, rt)
+			for _, gs in ipairs({1, -1}) do
+				put(a, "GuardTip", V3(0.5, 0.5, 1.0), V3(gs * 1.8, -6.83, -1.40), NEON, NM, rt)
+			end
+			put(a, "Blade", V3(0.3, 0.95, 10.6), V3(0, -4.06, -6.50), NEON, NM, rt)
+			put(a, "BladeSpine", V3(0.5, 0.25, 10.8), V3(0, -3.58, -6.24), BLACK, nil, rt)
+			put(a, "BladeEdge", V3(0.5, 0.2, 10.8), V3(0, -4.54, -6.76), SILVER, nil, rt)
+			local tip = put(a, "BladeTip", V3(0.3, 1.0, 1.0), V3(0, -1.42, -11.33), NEON, NM, CFrame.Angles(th + math.rad(45), 0, 0))
+			light(tip, 30, 3)
+			R.SwordTip = tip
+		end
+		put(a, "Hand", V3(1.8, 1.3, 1.8), V3(0, -7.6, 0), GUN)
+
+		local l = limb(n .. "Leg", V3(s * 1.7, -0.6, 0))
+		put(l, "Thigh", V3(2.8, 3.8, 3.0), V3(0, -2.2, 0), BLACK)
+		put(l, "ThighArmor", V3(0.5, 3.0, 2.4), V3(s * 1.5, -2.2, 0), GUN)
+		put(l, "ThighN", V3(0.2, 2.4, 0.2), V3(s * 1.2, -2.2, -1.55), NEON, NM)
+		put(l, "Knee", V3(2.2, 1.3, 1.5), V3(0, -4.2, -1.4), SILVER)
+		put(l, "KneeSpike", V3(0.4, 0.4, 1.4), V3(0, -4.2, -2.6), NEON, NM)
+		put(l, "Shin", V3(2.5, 4.0, 3.2), V3(0, -6.2, 0), GUN)
+		put(l, "Calf", V3(2.0, 2.4, 1.0), V3(0, -6.0, 1.9), BLACK)
+		put(l, "Fin", V3(0.25, 2.8, 1.8), V3(s * 1.4, -6.0, 1.0), NEON, NM)
+		put(l, "Boot", V3(3.2, 1.4, 4.8), V3(0, -8.9, -0.6), BLACK)
+		put(l, "BootN", V3(3.25, 0.12, 4.85), V3(0, -9.45, -0.6), NEON, NM)
+		for t = -1, 1 do
+			put(l, "Claw", V3(0.7, 0.5, 1.4), V3(t * 1.0, -8.6, -3.3), SILVER)
+		end
+		R.Thr[#R.Thr + 1] = put(l, "Thr", V3(0.9, 0.5, 0.9), V3(0, -9.7, 1.4), GUN)
+	end
+
+	-- ปีกใหญ่ 6 ใบต่อข้าง
+	for i = 1, 6 do
+		for _, s in ipairs({1, -1}) do
+			local len = LENS[i]
+			local b = mk("Wing", V3(len * 0.5, 0.2, 1.8), BLACK)
+			local w = weld(root, b, wingC0(s, i, len, 1))
+			put(b, "WingB", V3(len * 0.3, 0.2, 1.2), V3(s * len * 0.4, 0, 0), BLACK)
+			put(b, "WingT", V3(len * 0.2, 0.2, 0.6), V3(s * len * 0.65, 0, 0), SILVER)
+			put(b, "WingE", V3(len * 0.95, 0.26, 0.2), V3(s * len * 0.225, 0, 0.7), NEON, NM)
+			R.Wings[#R.Wings + 1] = {w = w, s = s, i = i, len = len}
+		end
+	end
+	R.WingT = 1
+
+	----------------------------------------------------------------
+	-- ร่างเครื่องบินเจ็ท (ซ่อนไว้จนกว่าจะแปลงร่าง)
+	----------------------------------------------------------------
+	grp = "J"
+	local jc = 4.2
+	put(root, "JBody", V3(3.0, 2.0, 13), V3(0, jc, 0), BLACK)
+	put(root, "JBelly", V3(2.2, 0.4, 10), V3(0, jc - 1.1, 0.5), GUN)
+	put(root, "JSpine", V3(0.35, 0.15, 9), V3(0, jc + 1.05, 1.5), NEON, NM)
+	put(root, "JNose1", V3(3.5, 1.9, 1.9), V3(0, jc, -8.25), GUN, nil, face90, cyl)
+	put(root, "JNose2", V3(3.0, 1.2, 1.2), V3(0, jc, -10.4), SILVER, nil, face90, cyl)
+	put(root, "JNoseTip", V3(1.4, 0.6, 0.6), V3(0, jc, -12.2), NEON, NM, face90, cyl)
+	put(root, "JCanopy", V3(2.0, 1.0, 4.8), V3(0, jc + 1.15, -3.2), GLASS, Enum.Material.Glass)
+	put(root, "JCanopyN", V3(2.1, 0.08, 4.9), V3(0, jc + 1.68, -3.2), NEON, NM)
+	for _, s in ipairs({1, -1}) do
+		-- ปีกสามเหลี่ยมใหญ่
+		local w = put(root, "JWing", V3(11, 0.35, 5.5), V3(s * 6.8, jc - 0.2, 1.2), BLACK, nil, CFrame.Angles(0, -s * 0.5, 0))
+		put(w, "JWingE", V3(11, 0.4, 0.25), V3(0, 0.02, -2.7), NEON, NM)
+		put(w, "JWingBack", V3(10.4, 0.2, 0.2), V3(0, 0.05, 2.65), SILVER)
+		put(w, "JWingLine", V3(8, 0.1, 0.15), V3(0, -0.2, 0.2), NEON, NM)
+		put(w, "Winglet", V3(0.3, 2.0, 2.4), V3(s * 5.4, 1.0, 0.4), GUN, nil, CFrame.Angles(0, 0, -s * 0.3))
+		put(w, "WingletN", V3(0.34, 0.15, 2.4), V3(s * 5.6, 2.0, 0.4), NEON, NM)
+		local g = put(w, "JGun", V3(0.45, 0.45, 3.2), V3(s * 3.0, -0.3, -3.6), GUN)
+		R.JetGuns[#R.JetGuns + 1] = g
+		-- หาง
+		put(root, "JTail", V3(0.3, 3.6, 3.2), V3(s * 1.5, jc + 2.2, 5.2), BLACK, nil, CFrame.Angles(0, 0, -s * 0.3))
+		put(root, "JTailN", V3(0.34, 0.15, 3.2), V3(s * 2.0, jc + 3.95, 5.2), NEON, NM, CFrame.Angles(0, 0, -s * 0.3))
+		put(root, "JStab", V3(4.0, 0.25, 2.4), V3(s * 3.2, jc, 6.0), BLACK, nil, CFrame.Angles(0, -s * 0.4, 0))
+		-- เครื่องยนต์เจ็ท
+		put(root, "JEng", V3(5.5, 1.9, 1.9), V3(s * 1.2, jc, 6.2), GUN, nil, face90, cyl)
+		put(root, "JEngN", V3(0.4, 2.1, 2.1), V3(s * 1.2, jc, 9.0), NEON, NM, face90, cyl)
+		local t = put(root, "JThr", V3(0.9, 0.9, 0.9), V3(s * 1.2, jc, 9.3), GUN)
+		t:SetAttribute("JetFlame", true)
+		R.JetThr[#R.JetThr + 1] = t
+		light(t, 35, 3)
+		put(root, "JIntake", V3(1.2, 1.4, 2.2), V3(s * 2.0, jc - 0.2, -3.5), GUN)
+	end
+	grp = "R"
+
+	-- เส้นเรืองแสงรอบตัว
+	local hl = Instance.new("Highlight")
+	hl.FillTransparency = 1
+	hl.OutlineColor = NEON
+	hl.OutlineTransparency = 0.35
+	hl.DepthMode = Enum.HighlightDepthMode.Occluded
+	hl.Parent = M
+
+	N.SetForm(R, false)
+	return R
+end
+
+-- สลับการมองเห็นระหว่างร่างหุ่น / ร่างเจ็ท
+function N.SetForm(R, jet)
+	R.Form = jet and "jet" or "robot"
+	for _, p in ipairs(R.RobotParts) do
+		if not p:GetAttribute("Keep") then p.Transparency = jet and 1 or 0 end
+	end
+	for _, p in ipairs(R.JetParts) do
+		p.Transparency = jet and 0 or 1
+	end
+	for _, l in ipairs(R.RobotLights) do l.Enabled = not jet end
+	for _, l in ipairs(R.JetLights) do l.Enabled = jet end
+end
+
+function N.WingPose(R, t)
+	for _, wd in ipairs(R.Wings) do
+		if wd.w.Parent then wd.w.C0 = wingC0(wd.s, wd.i, wd.len, t) end
+	end
+	R.WingT = t
+end
+
+function N.WingsTo(R, to, dur)
+	local from = R.WingT or 1
+	R.WingTok = (R.WingTok or 0) + 1
+	local tok = R.WingTok
+	task.spawn(function()
+		local t0 = os.clock()
+		while tok == R.WingTok and R.Model.Parent do
+			local a = math.min((os.clock() - t0) / dur, 1)
+			local e = a * a * (3 - 2 * a)
+			N.WingPose(R, from + (to - from) * e)
+			if a >= 1 then break end
+			RS.Heartbeat:Wait()
+		end
+	end)
+end
+
+function N.Pose(R, la, ra, ll, rl)
+	local J = R.J
+	J.LArm.w.C0 = J.LArm.c0 * CFrame.Angles(la, 0, 0)
+	J.RArm.w.C0 = J.RArm.c0 * CFrame.Angles(ra, 0, 0)
+	J.LLeg.w.C0 = J.LLeg.c0 * CFrame.Angles(ll, 0, 0)
+	J.RLeg.w.C0 = J.RLeg.c0 * CFrame.Angles(rl, 0, 0)
+end
+
+local function setFlames(list, on)
+	for _, p in ipairs(list) do
+		local e = p:FindFirstChild("Flame")
+		if on and not e then
+			local jetF = p:GetAttribute("JetFlame")
+			e = Instance.new("ParticleEmitter")
+			e.Name = "Flame"
+			e.Color = ColorSequence.new(Color3.fromRGB(255, 90, 60), Color3.fromRGB(150, 10, 25))
+			e.LightEmission = 1
+			e.Rate = jetF and 120 or 80
+			e.Lifetime = NumberRange.new(0.4, 0.8)
+			e.Speed = jetF and NumberRange.new(60, 100) or NumberRange.new(25, 40)
+			e.SpreadAngle = Vector2.new(5, 5)
+			e.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, jetF and 5 or 3.4), NumberSequenceKeypoint.new(1, 0)})
+			e.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)})
+			e.EmissionDirection = jetF and Enum.NormalId.Back or Enum.NormalId.Bottom
+			e.Parent = p
+		end
+		if e then e.Enabled = on end
+	end
+end
+
+function N.Thrust(R, on)
+	local jet = R.Form == "jet"
+	setFlames(jet and R.Thr or R.JetThr, false)
+	setFlames(jet and R.JetThr or R.Thr, on)
+end
+-- NEXORA GIANT ROBOT v3 | ไฟล์ 3/6 : เรียกหุ่นลงมาจากฟ้า (คัทซีน) + เก็บหุ่น + เอฟเฟกต์
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local TS = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+local lp = Players.LocalPlayer
+repeat task.wait() until _G.NXG and _G.NXG.Ready and _G.NXG.Build
+local N = _G.NXG
+local CF, V3 = CFrame.new, Vector3.new
+
+local function ring(pos, maxSize, dur, color)
+	local p = Instance.new("Part")
+	p.Shape = Enum.PartType.Cylinder
+	p.Material = Enum.Material.SmoothPlastic
+	p.Color = color
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Transparency = 0.35
+	p.Size = V3(1, 10, 10)
+	p.CFrame = CF(pos) * CFrame.Angles(0, 0, math.rad(90))
+	p.Parent = workspace
+	TS:Create(p, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{Size = V3(1, maxSize, maxSize), Transparency = 1}):Play()
+	Debris:AddItem(p, dur + 0.1)
+end
+
+local function dust(pos, n)
+	local a = Instance.new("Part")
+	a.Anchored = true
+	a.CanCollide = false
+	a.CanQuery = false
+	a.Transparency = 1
+	a.Size = V3(1, 1, 1)
+	a.CFrame = CF(pos)
+	a.Parent = workspace
+	local e = Instance.new("ParticleEmitter")
+	e.Color = ColorSequence.new(Color3.fromRGB(140, 130, 120))
+	e.Rate = 0
+	e.Lifetime = NumberRange.new(1.5, 3)
+	e.Speed = NumberRange.new(40, 90)
+	e.SpreadAngle = Vector2.new(80, 80)
+	e.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 8), NumberSequenceKeypoint.new(1, 40)})
+	e.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1)})
+	e.EmissionDirection = Enum.NormalId.Top
+	e.Parent = a
+	e:Emit(n)
+	Debris:AddItem(a, 4)
+end
+
+function N.Shake(sec, amp)
+	local t0 = os.clock()
+	local name = "NXG_Shake" .. tostring(t0) .. tostring(math.random(1, 99999))
+	RS:BindToRenderStep(name, Enum.RenderPriority.Camera.Value + 1, function()
+		local k = (os.clock() - t0) / sec
+		if k >= 1 then
+			RS:UnbindFromRenderStep(name)
+			return
+		end
+		local a = amp * (1 - k) ^ 2
+		local cam = workspace.CurrentCamera
+		cam.CFrame = cam.CFrame * CF((math.random() - 0.5) * a, (math.random() - 0.5) * a, 0)
+	end)
+end
+
+N.Ring = ring
+N.Dust = dust
+
+function N.Call()
+	local S = N.S
+	if S.Called then return end
+	local char = lp.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	S.Called, S.Busy = true, true
+	N.Refresh()
+
+	local R = N.Build()
+	N.R = R
+	local look = hrp.CFrame.LookVector
+	local fwd = V3(look.X, 0, look.Z)
+	fwd = fwd.Magnitude > 0.01 and fwd.Unit or V3(0, 0, -1)
+	local gp = hrp.Position + fwd * 95
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = {char, R.Model}
+	local hit = workspace:Raycast(V3(gp.X, hrp.Position.Y + 300, gp.Z), V3(0, -900, 0), rp)
+	local gy = hit and hit.Position.Y or (hrp.Position.Y - 3)
+	local landPos = V3(gp.X, gy + R.Floor, gp.Z)
+	local face = -fwd
+	local function pose(pos, lean)
+		return CFrame.lookAt(pos, pos + face) * CFrame.Angles(-lean, 0, 0)
+	end
+
+	local start = landPos - face * 170 + V3(0, 520, 0)
+	R.Root.Anchored = true
+	R.Root.CFrame = pose(start, math.rad(70))
+	R.Model.Parent = workspace
+	N.WingPose(R, 1)
+	N.Pose(R, -0.6, -0.6, -0.4, -0.3)
+	N.Thrust(R, true)
+
+	local cam = workspace.CurrentCamera
+	cam.CameraType = Enum.CameraType.Scriptable
+	local camA = hrp.Position + V3(0, 4, 0)
+	local side = face:Cross(V3(0, 1, 0)).Unit
+	local gpos = landPos - V3(0, R.Floor, 0)
+	local camB = gpos + side * 120 + face * 25 + V3(0, 14, 0)
+
+	local T = 5.2
+	local t0 = os.clock()
+	while true do
+		local a = (os.clock() - t0) / T
+		if a >= 1 then break end
+		local e = 1 - (1 - a) ^ 2.4
+		local pos = start:Lerp(landPos, e)
+		local lean = math.rad(70) * (1 - math.min(a / 0.85, 1))
+		R.Root.CFrame = pose(pos, lean)
+		local s = math.clamp((a - 0.5) / 0.2, 0, 1)
+		s = s * s * (3 - 2 * s)
+		cam.CFrame = CFrame.lookAt(camA:Lerp(camB, s), pos)
+		RS.RenderStepped:Wait()
+	end
+
+	R.Root.CFrame = pose(landPos, 0)
+	N.Thrust(R, false)
+	N.WingsTo(R, 0, 1.2)
+	N.Pose(R, 0, 0, 0, 0)
+	ring(gpos + V3(0, 1, 0), 330, 1.1, Color3.fromRGB(120, 110, 100))
+	task.delay(0.2, function()
+		ring(gpos + V3(0, 1, 0), 220, 1.0, Color3.fromRGB(255, 30, 50))
+	end)
+	dust(gpos + V3(0, 3, 0), 90)
+
+	local t1 = os.clock()
+	while os.clock() - t1 < 2.2 do
+		local k = os.clock() - t1
+		local amp = 3 * (1 - k / 2.2) ^ 2
+		local cp = camB + side * (k * 3)
+		cam.CFrame = CFrame.lookAt(
+			cp + V3((math.random() - 0.5) * amp, (math.random() - 0.5) * amp, 0), landPos)
+		RS.RenderStepped:Wait()
+	end
+	cam.CameraType = Enum.CameraType.Custom
+	S.Landed = true
+	S.Busy = false
+	N.Refresh()
+end
+
+function N.Dismiss()
+	local S = N.S
+	if not S.Landed or S.Riding or S.Busy then return end
+	S.Busy = true
+	N.Refresh()
+	local R = N.R
+	local from = R.Root.CFrame
+	N.WingsTo(R, 1, 0.8)
+	N.Thrust(R, true)
+	N.Pose(R, -0.6, -0.6, -0.4, -0.3)
+	dust(from.Position - V3(0, R.Floor - 3, 0), 60)
+	task.wait(0.8)
+	local t0 = os.clock()
+	while os.clock() - t0 < 3 do
+		local a = (os.clock() - t0) / 3
+		R.Root.CFrame = from * CF(0, 600 * a * a, 0)
+		RS.Heartbeat:Wait()
+	end
+	R.Model:Destroy()
+	N.R = nil
+	S.Called, S.Landed, S.Busy = false, false, false
+	N.Refresh()
+end
+-- NEXORA GIANT ROBOT v3 | ไฟล์ 4/6 : ขี่ + เดิน + บิน + กระโดด + แปลงร่างเจ็ท
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local lp = Players.LocalPlayer
+repeat task.wait() until _G.NXG and _G.NXG.Ready and _G.NXG.Call
+local N = _G.NXG
+local CF, V3 = CFrame.new, Vector3.new
+
+local WALK, FLY, DASH = 60, 170, 320 -- ความเร็วเดิน / บิน / พุ่ง (แก้ได้)
+local JET = 230 -- ความเร็วเครื่องบินเจ็ท (แก้ได้)
+local JUMP, GRAV = 150, 220 -- แรงกระโดด / แรงโน้มถ่วง
+local NEON = Color3.fromRGB(255, 30, 50)
+
+local controls
+pcall(function()
+	controls = require(lp:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")):GetControls()
+end)
+
+local bv, bg, conn, weld, oldZoom
+local cur = V3()
+local head = V3(0, 0, -1)
+local ph = 0
+local vy, air, jumpT = 0, false, -10
+local jdir, jsp = V3(0, 0, -1), 0
+local P = {la = 0, ra = 0, ll = 0, rl = 0}
+
+-- กดกระโดดในเกม (Space / ปุ่มกระโดดมือถือ) = หุ่นกระโดดตาม
+UIS.JumpRequest:Connect(function()
+	local S = N.S
+	if S.Riding and not S.Flying and not S.Jet and not S.Busy then
+		jumpT = os.clock()
+	end
+end)
+
+local function stopCtl()
+	if conn then conn:Disconnect() conn = nil end
+	if bv then bv:Destroy() bv = nil end
+	if bg then bg:Destroy() bg = nil end
+	air, vy = false, 0
+end
+N.StopCtl = stopCtl
+
+local function restoreZoom()
+	if oldZoom then
+		lp.CameraMaxZoomDistance = oldZoom[2]
+		lp.CameraMinZoomDistance = oldZoom[1]
+		oldZoom = nil
+	end
+end
+
+local function startCtl(R, char)
+	local root = R.Root
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = {R.Model, char}
+	root.Anchored = false
+	bv = Instance.new("BodyVelocity")
+	bv.MaxForce = V3(1e9, 1e9, 1e9)
+	bv.Velocity = V3()
+	bv.Parent = root
+	bg = Instance.new("BodyGyro")
+	bg.MaxTorque = V3(1e9, 1e9, 1e9)
+	bg.P = 15000
+	bg.D = 1500
+	bg.CFrame = root.CFrame
+	bg.Parent = root
+	local l0 = root.CFrame.LookVector
+	head = V3(l0.X, 0, l0.Z)
+	head = head.Magnitude > 0.01 and head.Unit or V3(0, 0, -1)
+	cur = V3()
+	air, vy, jumpT = false, 0, -10
+	P = {la = 0, ra = 0, ll = 0, rl = 0}
+
+	conn = RS.Heartbeat:Connect(function(dt)
+		local S = N.S
+		if not (R.Model.Parent and char.Parent) then return end
+		local cam = workspace.CurrentCamera
+		local cl = cam.CFrame
+		local mv = controls and controls:GetMoveVector() or V3()
+		local dashing = N.DashUntil and os.clock() < N.DashUntil
+		local pos = root.Position
+		local k = math.clamp(dt * 4, 0, 1)
+		local w = cl:VectorToWorldSpace(V3(mv.X, 0, mv.Z))
+		local flat = V3(cl.LookVector.X, 0, cl.LookVector.Z)
+		if flat.Magnitude < 0.01 then flat = head end
+		local tilt = 0
+
+		----------------------------------------------------------------
+		-- โหมดเครื่องบินเจ็ท
+		----------------------------------------------------------------
+		if S.Jet then
+			local boost = N.JetBoostUntil and os.clock() < N.JetBoostUntil
+			local want = JET
+			if mv.Z < -0.3 then want = JET * 1.35 elseif mv.Z > 0.3 then want = JET * 0.55 end
+			if boost then want = JET * 2.2 end
+			jsp = jsp + (want - jsp) * math.clamp(dt * 2.5, 0, 1)
+			jdir = jdir:Lerp(cl.LookVector, math.clamp(dt * 2.4, 0, 1))
+			jdir = jdir.Magnitude > 0.05 and jdir.Unit or cl.LookVector
+			-- กันพุ่งชนพื้น
+			local gh = workspace:Raycast(pos, V3(0, -40, 0), rp)
+			if gh and jdir.Y < 0.05 then
+				jdir = V3(jdir.X, 0.05, jdir.Z).Unit
+			end
+			cur = jdir * jsp
+			bv.Velocity = cur
+			local roll = -math.clamp(mv.X, -1, 1) * 0.75
+			bg.CFrame = CFrame.lookAt(pos, pos + jdir) * CFrame.Angles(0, 0, roll)
+			local hz = V3(jdir.X, 0, jdir.Z)
+			if hz.Magnitude > 0.01 then head = hz.Unit end
+			return
+		end
+
+		if S.Flying then
+			air, vy = false, 0
+			local up = UIS:IsKeyDown(Enum.KeyCode.Space) and 1 or 0
+			w = w + V3(0, up, 0)
+			local target = w.Magnitude > 0.05 and w.Unit * FLY or V3()
+			if dashing then target = cl.LookVector * DASH end
+			cur = cur:Lerp(target, k)
+			head = flat.Unit
+			tilt = math.rad(55) * math.clamp(-mv.Z, 0, 1)
+			if dashing then tilt = math.rad(75) end
+		else
+			w = V3(w.X, 0, w.Z)
+			if dashing and w.Magnitude < 0.05 then w = flat end
+			local target = w.Magnitude > 0.05 and w.Unit * (dashing and DASH * 0.5 or WALK) or V3()
+			local hz = V3(cur.X, 0, cur.Z):Lerp(target, air and k * 0.6 or k)
+			local hit = workspace:Raycast(pos + V3(0, 60, 0), V3(0, -900, 0), rp)
+			local want = hit and (hit.Position.Y + R.Floor) or pos.Y
+			local gpt = hit and hit.Position or V3(pos.X, pos.Y - R.Floor, pos.Z)
+
+			-- ออกตัวกระโดด
+			if not air and os.clock() - jumpT < 0.25 then
+				air, vy, jumpT = true, JUMP, -10
+				N.Thrust(R, true)
+				task.delay(0.4, function()
+					if N.R == R and not N.S.Flying and not N.S.Jet and not (N.DashUntil and os.clock() < N.DashUntil) then
+						N.Thrust(R, false)
+					end
+				end)
+				N.Ring(gpt + V3(0, 1, 0), 130, 0.6, NEON)
+				N.Dust(gpt + V3(0, 3, 0), 30)
+				N.Shake(0.3, 1)
+			end
+			-- เดินตกขอบ = ตกด้วยแรงโน้มถ่วง
+			if not air and pos.Y - want > 6 then
+				air, vy = true, 0
+			end
+
+			if air then
+				vy = vy - GRAV * dt
+				if vy <= 0 and pos.Y + vy * dt <= want then
+					air, vy = false, 0
+					N.Ring(gpt + V3(0, 1, 0), 170, 0.8, NEON)
+					N.Dust(gpt + V3(0, 3, 0), 45)
+					N.Shake(0.5, 1.6)
+					cur = V3(hz.X, math.clamp((want - pos.Y) * 6, -150, 150), hz.Z)
+				else
+					cur = V3(hz.X, vy, hz.Z)
+				end
+			else
+				cur = V3(hz.X, math.clamp((want - pos.Y) * 6, -150, 150), hz.Z)
+			end
+
+			if w.Magnitude > 0.05 then
+				local nh = head:Lerp(w.Unit, math.clamp(dt * 3, 0, 1))
+				if nh.Magnitude > 0.05 then head = nh.Unit else head = w.Unit end
+			end
+		end
+		bv.Velocity = cur
+		bg.CFrame = CFrame.lookAt(pos, pos + head) * CFrame.Angles(-tilt, 0, 0)
+
+		-- ท่าทางแขนขา
+		local sp = V3(cur.X, 0, cur.Z).Magnitude
+		local la, ra, ll, rl = 0, 0, 0, 0
+		if S.Flying then
+			la, ra, ll, rl = -0.6, -0.6, -0.4, -0.3
+			if dashing then la, ra = -1.1, -1.1 end
+		elseif air then
+			if vy > 0 then
+				la, ra, ll, rl = -0.8, -0.8, 0.9, 0.5
+			else
+				la, ra, ll, rl = 0.7, 0.7, 0.25, 0.25
+			end
+		elseif sp > 2 then
+			ph = ph + dt * sp * 0.12
+			local sw = math.sin(ph)
+			ll, rl, la, ra = sw * 0.6, -sw * 0.6, -sw * 0.45, sw * 0.45
+		end
+		local an = N.Anim
+		if an and os.clock() < an.t then la, ra = an.la, an.ra end
+		local f = math.clamp(dt * 10, 0, 1)
+		P.la = P.la + (la - P.la) * f
+		P.ra = P.ra + (ra - P.ra) * f
+		P.ll = P.ll + (ll - P.ll) * f
+		P.rl = P.rl + (rl - P.rl) * f
+		N.Pose(R, P.la, P.ra, P.ll, P.rl)
+	end)
+end
+
+function N.Ride()
+	local S = N.S
+	if not S.Landed or S.Riding or S.Busy then return end
+	local R = N.R
+	local char = lp.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not (hum and hrp and R) then return end
+	S.Busy = true
+	N.Refresh()
+	hum.PlatformStand = true
+	hrp.Anchored = true
+	local from = hrp.CFrame
+	local t0 = os.clock()
+	while true do
+		local a = math.min((os.clock() - t0) / 1.2, 1)
+		local e = a * a * (3 - 2 * a)
+		local toCF = R.Seat.CFrame
+		local p = from.Position:Lerp(toCF.Position, e) + V3(0, math.sin(a * math.pi) * 25, 0)
+		hrp.CFrame = CF(p) * from.Rotation:Lerp(toCF.Rotation, e)
+		if a >= 1 then break end
+		RS.Heartbeat:Wait()
+	end
+	hrp.CFrame = R.Seat.CFrame
+	weld = Instance.new("Weld")
+	weld.Part0 = R.Seat
+	weld.Part1 = hrp
+	weld.C0 = CF()
+	weld.Parent = hrp
+	hrp.Anchored = false
+	oldZoom = {lp.CameraMinZoomDistance, lp.CameraMaxZoomDistance}
+	lp.CameraMaxZoomDistance = 300
+	lp.CameraMinZoomDistance = 70
+	startCtl(R, char)
+	S.Riding = true
+	S.Busy = false
+	N.Refresh()
+end
+
+function N.Dismount()
+	local S = N.S
+	if not S.Riding or S.Busy or S.Jet then return end
+	S.Busy = true
+	S.Flying = false
+	N.Refresh()
+	local R = N.R
+	stopCtl()
+	N.Thrust(R, false)
+	N.WingsTo(R, 0, 0.6)
+	N.Pose(R, 0, 0, 0, 0)
+	local root = R.Root
+	root.Anchored = true
+	local from = root.CFrame
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = {R.Model, lp.Character}
+	local hit = workspace:Raycast(from.Position + V3(0, 60, 0), V3(0, -900, 0), rp)
+	local gy = hit and hit.Position.Y or (from.Position.Y - R.Floor)
+	local lk = from.LookVector
+	local fl = V3(lk.X, 0, lk.Z)
+	fl = fl.Magnitude > 0.01 and fl.Unit or V3(0, 0, -1)
+	local pos = V3(from.Position.X, gy + R.Floor, from.Position.Z)
+	local to = CFrame.lookAt(pos, pos + fl)
+	local t0 = os.clock()
+	while true do
+		local a = math.min((os.clock() - t0) / 0.7, 1)
+		root.CFrame = from:Lerp(to, a * a)
+		if a >= 1 then break end
+		RS.Heartbeat:Wait()
+	end
+	local char = lp.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if weld then weld:Destroy() weld = nil end
+	if hrp then hrp.CFrame = to * CF(0, 3 - R.Floor, -9 * N.SCALE) end
+	if hum then
+		hum.PlatformStand = false
+		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end
+	restoreZoom()
+	S.Riding = false
+	S.Busy = false
+	N.Refresh()
+end
+
+function N.ToggleFly()
+	local S = N.S
+	if not S.Riding or S.Busy or S.Jet then return end
+	local R = N.R
+	S.Flying = not S.Flying
+	air, vy = false, 0
+	if S.Flying then
+		N.WingsTo(R, 1, 0.6)
+		N.Thrust(R, true)
+		cur = cur + V3(0, 60, 0)
+	else
+		N.WingsTo(R, 0, 0.6)
+		N.Thrust(R, false)
+	end
+	N.Refresh()
+end
+
+-- แปลงร่าง หุ่น <-> เครื่องบินเจ็ท
+function N.Transform()
+	local S = N.S
+	if not S.Riding or S.Busy then return end
+	local R = N.R
+	if not R then return end
+	local toJet = not S.Jet
+	S.Busy = true
+	N.Refresh()
+	N.Ring(R.Root.Position, 160, 0.6, NEON)
+	N.Shake(0.7, 1.5)
+	N.WingsTo(R, toJet and 0 or 1, 0.35)
+	N.Thrust(R, false)
+	task.wait(0.4)
+	if not (N.R == R and R.Model.Parent) then return end
+	N.SetForm(R, toJet)
+	if toJet then
+		S.Jet, S.Flying = true, false
+		air, vy = false, 0
+		jdir = R.Root.CFrame.LookVector
+		jsp = 160
+		cur = jdir * jsp
+	else
+		S.Jet, S.Flying = false, true
+		N.WingsTo(R, 1, 0.4)
+		N.Pose(R, -0.6, -0.6, -0.4, -0.3)
+		local hz = V3(jdir.X, 0, jdir.Z)
+		head = hz.Magnitude > 0.01 and hz.Unit or head
+	end
+	N.Thrust(R, true)
+	N.Ring(R.Root.Position, 220, 0.8, Color3.fromRGB(255, 120, 120))
+	N.Dust(R.Root.Position, 40)
+	N.Shake(0.5, 1.5)
+	S.Busy = false
+	N.Refresh()
+end
+
+lp.CharacterAdded:Connect(function()
+	stopCtl()
+	if weld then weld:Destroy() weld = nil end
+	if N.R and N.R.Model then N.R.Model:Destroy() end
+	N.R = nil
+	restoreZoom()
+	local S = N.S
+	S.Called, S.Landed, S.Riding, S.Flying, S.Jet, S.Busy = false, false, false, false, false, false
+	N.Refresh()
+	workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+end)
+-- NEXORA GIANT ROBOT v3 | ไฟล์ 5/6 : สกิลร่างหุ่น 6 อย่าง
+-- 1 ขีปนาวุธ  2 กระแทกพื้น  3 พุ่งทะยาน  4 ฟันดาบ  5 ลูกพลัง(ชาร์จ)  6 เลเซอร์ตา
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local TS = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+local lp = Players.LocalPlayer
+repeat task.wait() until _G.NXG and _G.NXG.Ready and _G.NXG.Ride and _G.NXG.Ring
+local N = _G.NXG
+local CF, V3 = CFrame.new, Vector3.new
+
+local NEON = Color3.fromRGB(255, 30, 50)
+local PALE = Color3.fromRGB(255, 210, 210)
+local NM = Enum.Material.Neon
+local cd = {}
+local CDT = {4, 6, 5, 6, 12, 8}
+local KEYS = {"s1", "s2", "s3", "s4", "s5", "s6"}
+
+local function rayParams(R)
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = {R.Model, lp.Character}
+	return rp
+end
+
+local function camAim(rp)
+	local cam = workspace.CurrentCamera
+	local cp, lv = cam.CFrame.Position, cam.CFrame.LookVector
+	local hit = workspace:Raycast(cp, lv * 1000, rp)
+	return hit and hit.Position or (cp + lv * 1000)
+end
+
+local function newPart(shape, color, mat, tr, size)
+	local p = Instance.new("Part")
+	if shape then p.Shape = shape end
+	p.Material = mat
+	p.Color = color
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Transparency = tr
+	p.Size = size
+	p.Parent = workspace
+	return p
+end
+
+-- ลูกแสงนีออนขยายแล้วจางหาย
+local function flash(pos, size, dur)
+	local p = newPart(Enum.PartType.Ball, NEON, NM, 0.2, V3(2, 2, 2))
+	p.Position = pos
+	TS:Create(p, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{Size = V3(size, size, size), Transparency = 1}):Play()
+	Debris:AddItem(p, dur + 0.1)
+end
+
+local function explode(pos, radius)
+	local e = Instance.new("Explosion")
+	e.Position = pos
+	e.BlastRadius = radius
+	e.BlastPressure = 0
+	e.DestroyJointRadiusPercent = 0
+	e.Parent = workspace
+	flash(pos, radius * 1.8, 0.5)
+	N.Dust(pos, 25)
+end
+
+-- ส่งออกให้ไฟล์ 6 ใช้ร่วมกัน
+N.Flash, N.Explode, N.RayParams, N.CamAim = flash, explode, rayParams, camAim
+
+----------------------------------------------------------------
+-- ขีปนาวุธนำวิถี (ใช้ร่วมกับเจ็ทได้ ใส่ speed เพิ่ม)
+----------------------------------------------------------------
+local function missile(origin, dir0, aim, rp, speed)
+	speed = speed or 200
+	local m = newPart(nil, Color3.fromRGB(60, 62, 72), Enum.Material.Metal, 0, V3(1.2, 1.2, 6))
+	m.CFrame = CFrame.lookAt(origin, origin + dir0)
+	local nose = Instance.new("Part")
+	nose.Size = V3(1.2, 1.2, 1.5)
+	nose.Color = NEON
+	nose.Material = NM
+	nose.CanCollide = false
+	nose.CanQuery = false
+	nose.CanTouch = false
+	nose.Massless = true
+	nose.Parent = m
+	local w = Instance.new("Weld")
+	w.Part0 = m
+	w.Part1 = nose
+	w.C0 = CF(0, 0, -3.2)
+	w.Parent = nose
+	local lt = Instance.new("PointLight", m)
+	lt.Color = NEON
+	lt.Range = 18
+	lt.Brightness = 3
+	local a0 = Instance.new("Attachment", m)
+	a0.Position = V3(0.6, 0, 3)
+	local a1 = Instance.new("Attachment", m)
+	a1.Position = V3(-0.6, 0, 3)
+	local tr = Instance.new("Trail", m)
+	tr.Attachment0 = a0
+	tr.Attachment1 = a1
+	tr.Lifetime = 0.9
+	tr.LightEmission = 1
+	tr.Color = ColorSequence.new(Color3.fromRGB(255, 70, 60), Color3.fromRGB(120, 10, 20))
+	tr.Transparency = NumberSequence.new(0, 1)
+
+	local pos, dir = origin, dir0
+	local t0 = os.clock()
+	local c
+	c = RS.Heartbeat:Connect(function(dt)
+		local want = aim - pos
+		if os.clock() - t0 > 0.25 and want.Magnitude > 1 then
+			dir = dir:Lerp(want.Unit, math.clamp(dt * 3.5, 0, 1)).Unit
+		end
+		local step = dir * speed * dt
+		local hit = workspace:Raycast(pos, step, rp)
+		if hit or os.clock() - t0 > 4 then
+			c:Disconnect()
+			local at = hit and hit.Position or pos
+			m:Destroy()
+			explode(at, 22)
+			N.Ring(at + V3(0, 1, 0), 70, 0.5, NEON)
+			return
+		end
+		pos = pos + step
+		m.CFrame = CFrame.lookAt(pos, pos + dir)
+	end)
+end
+N.Missile = missile
+
+local function missiles()
+	local R = N.R
+	local rp = rayParams(R)
+	local aim = camAim(rp)
+	N.Anim = {t = os.clock() + 0.9, la = 1.2, ra = 1.2}
+	for _ = 1, 4 do
+		if not (N.R and N.R.Model.Parent) then return end
+		for _, pod in ipairs(R.Pods) do
+			local o = pod.Position + V3(0, 3, 0)
+			local rnd = V3(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 0.8
+			local d = (V3(0, 0.9, 0) + (aim - o).Unit * 0.4 + rnd).Unit
+			missile(o, d, aim, rp)
+		end
+		N.Shake(0.15, 0.6)
+		task.wait(0.16)
+	end
+end
+
+----------------------------------------------------------------
+-- กระแทกพื้น
+----------------------------------------------------------------
+local function stomp()
+	local R = N.R
+	N.Anim = {t = os.clock() + 0.45, la = 2.8, ra = 2.8}
+	task.wait(0.45)
+	if not (N.R and N.R.Model.Parent) then return end
+	N.Anim = {t = os.clock() + 0.5, la = 0.2, ra = 0.2}
+	local hit = workspace:Raycast(R.Root.Position, V3(0, -600, 0), rayParams(R))
+	local g = (hit and hit.Position or (R.Root.Position - V3(0, R.Floor, 0))) + V3(0, 1, 0)
+	N.Ring(g, 400, 1.3, Color3.fromRGB(110, 100, 92))
+	task.delay(0.12, function() N.Ring(g, 300, 1.1, NEON) end)
+	task.delay(0.25, function() N.Ring(g, 200, 1.0, NEON) end)
+	task.delay(0.4, function() N.Ring(g, 120, 0.9, Color3.fromRGB(80, 80, 88)) end)
+	local pillar = newPart(nil, NEON, NM, 0.2, V3(30, 400, 30))
+	pillar.Position = g + V3(0, 200, 0)
+	TS:Create(pillar, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{Size = V3(2, 400, 2), Transparency = 1}):Play()
+	Debris:AddItem(pillar, 0.8)
+	N.Dust(g + V3(0, 2, 0), 110)
+	N.Shake(1.0, 3.5)
+	explode(g, 34)
+end
+
+----------------------------------------------------------------
+-- พุ่งทะยาน
+----------------------------------------------------------------
+local function dash()
+	local R = N.R
+	local S = N.S
+	local cam = workspace.CurrentCamera
+	N.DashUntil = os.clock() + 1.2
+	N.Thrust(R, true)
+	N.Shake(1.0, 0.8)
+	N.Ring(R.Root.Position, 120, 0.5, NEON)
+	flash(R.Root.Position, 40, 0.4)
+	TS:Create(cam, TweenInfo.new(0.25), {FieldOfView = 95}):Play()
+	task.delay(1.2, function()
+		TS:Create(cam, TweenInfo.new(0.5), {FieldOfView = 70}):Play()
+		if not S.Flying and not S.Jet and N.R == R then N.Thrust(R, false) end
+	end)
+end
+
+----------------------------------------------------------------
+-- ฟันดาบ: ยกดาบแล้วฟันลงเป็นคลื่นกากบาท 2 ลูก
+----------------------------------------------------------------
+local function slashOne(origin, dir, roll, rp)
+	local p = newPart(Enum.PartType.Cylinder, NEON, NM, 0.15, V3(1.5, 14, 70))
+	local inner = Instance.new("Part")
+	inner.Shape = Enum.PartType.Cylinder
+	inner.Material = NM
+	inner.Color = PALE
+	inner.Size = V3(2, 8, 60)
+	inner.CanCollide = false
+	inner.CanQuery = false
+	inner.CanTouch = false
+	inner.Massless = true
+	inner.Parent = p
+	local w = Instance.new("Weld")
+	w.Part0 = p
+	w.Part1 = inner
+	w.Parent = inner
+	local pos = origin
+	local t0 = os.clock()
+	local c
+	c = RS.Heartbeat:Connect(function(dt)
+		local step = dir * 260 * dt
+		local hit = workspace:Raycast(pos, step, rp)
+		if hit or os.clock() - t0 > 2.2 then
+			c:Disconnect()
+			local at = hit and hit.Position or pos
+			p:Destroy()
+			explode(at, 30)
+			N.Ring(at + V3(0, 1, 0), 120, 0.6, NEON)
+			N.Shake(0.5, 2)
+			return
+		end
+		pos = pos + step
+		p.CFrame = CFrame.lookAt(pos, pos + dir) * CFrame.Angles(0, math.rad(90), 0) * CFrame.Angles(roll, 0, 0)
+	end)
+end
+
+local function sword()
+	local R = N.R
+	local rp = rayParams(R)
+	N.Anim = {t = os.clock() + 0.35, la = 0, ra = 2.7}
+	task.wait(0.35)
+	if not (N.R == R and R.Model.Parent) then return end
+	N.Anim = {t = os.clock() + 0.45, la = 0, ra = 0.3}
+	local origin = R.Root.Position + V3(0, 10, 0)
+	local dir = (camAim(rp) - origin).Unit
+	N.Shake(0.5, 1.5)
+	if R.SwordTip then flash(R.SwordTip.Position, 30, 0.3) end
+	for i, roll in ipairs({0.7, -0.7}) do
+		task.delay((i - 1) * 0.2, function()
+			if N.R == R and R.Model.Parent then
+				slashOne(R.Root.Position + V3(0, 10, 0), dir, roll, rp)
+			end
+		end)
+	end
+end
+
+----------------------------------------------------------------
+-- ลูกพลังงานแดง: ชาร์จนาน 2.6 วิที่ปืนแขนซ้าย แล้วยิงระเบิดใหญ่
+----------------------------------------------------------------
+local function plasma()
+	local R = N.R
+	local rp = rayParams(R)
+	local CH = 2.6
+	local ball = newPart(Enum.PartType.Ball, NEON, NM, 0.05, V3(2, 2, 2))
+	local core = newPart(Enum.PartType.Ball, PALE, NM, 0.1, V3(2, 2, 2))
+	local shell = newPart(Enum.PartType.Ball, NEON, Enum.Material.ForceField, 0.5, V3(2, 2, 2))
+	local lt = Instance.new("PointLight", ball)
+	lt.Color = NEON
+	lt.Range = 60
+	lt.Brightness = 5
+	local em = Instance.new("ParticleEmitter", ball)
+	em.Rate = 80
+	em.Lifetime = NumberRange.new(0.3, 0.6)
+	em.Speed = NumberRange.new(15, 35)
+	em.SpreadAngle = Vector2.new(180, 180)
+	em.Size = NumberSequence.new(2, 0)
+	em.Color = ColorSequence.new(NEON)
+	em.LightEmission = 1
+	em.Transparency = NumberSequence.new(0, 1)
+	local function cleanup()
+		ball:Destroy()
+		core:Destroy()
+		shell:Destroy()
+	end
+	N.Anim = {t = os.clock() + CH + 0.4, la = 1.35, ra = 0}
+	N.Shake(CH, 1.4)
+	local t0 = os.clock()
+	local lastRing = -1
+	local sz = 3
+	while true do
+		local el = os.clock() - t0
+		if el >= CH then break end
+		if not (N.R == R and R.Model.Parent) then cleanup() return end
+		local k = el / CH
+		sz = 3 + 26 * k * k + math.sin(el * 35) * 0.8
+		local m = R.Muzzle
+		local pos = m.Position + m.CFrame.LookVector * (sz * 0.5 + 1)
+		ball.Size = V3(sz, sz, sz)
+		ball.Position = pos
+		core.Size = V3(sz * 0.55, sz * 0.55, sz * 0.55)
+		core.Position = pos
+		shell.Size = V3(sz * 1.5, sz * 1.5, sz * 1.5)
+		shell.Position = pos
+		lt.Brightness = 3 + k * 8
+		if el - lastRing > 0.55 then
+			lastRing = el
+			local h = workspace:Raycast(R.Root.Position, V3(0, -600, 0), rp)
+			local g = (h and h.Position or (R.Root.Position - V3(0, R.Floor, 0))) + V3(0, 1, 0)
+			N.Ring(g, 60 + k * 140, 0.6, NEON)
+		end
+		RS.Heartbeat:Wait()
+	end
+
+	-- ยิง
+	local pos = ball.Position
+	local dir = (camAim(rp) - pos).Unit
+	N.Anim = {t = os.clock() + 0.35, la = 0.6, ra = 0}
+	N.Shake(0.5, 2.5)
+	flash(pos, 60, 0.3)
+	local t1 = os.clock()
+	local c
+	c = RS.Heartbeat:Connect(function(dt)
+		local step = dir * 190 * dt
+		local reach = step.Magnitude + sz * 0.5
+		local hit = workspace:Raycast(pos, dir * reach, rp)
+		if hit or os.clock() - t1 > 4 then
+			c:Disconnect()
+			local at = hit and hit.Position or pos
+			cleanup()
+			explode(at, 70)
+			flash(at, 180, 0.9)
+			N.Ring(at + V3(0, 1, 0), 380, 1.2, NEON)
+			task.delay(0.15, function() N.Ring(at + V3(0, 1, 0), 260, 1.0, NEON) end)
+			task.delay(0.3, function() N.Ring(at + V3(0, 1, 0), 160, 0.9, PALE) end)
+			N.Dust(at + V3(0, 2, 0), 120)
+			N.Shake(1.2, 4)
+			return
+		end
+		pos = pos + step
+		ball.Position, core.Position, shell.Position = pos, pos, pos
+	end)
+end
+
+----------------------------------------------------------------
+-- เลเซอร์ตา
+----------------------------------------------------------------
+local function laser()
+	local R = N.R
+	local rp = rayParams(R)
+	local DUR = 1.6
+	N.Anim = {t = os.clock() + DUR, la = 1.0, ra = 1.0}
+	N.Shake(DUR, 0.7)
+	local outer = newPart(nil, NEON, NM, 0.25, V3(1, 1, 1))
+	local core = newPart(nil, PALE, NM, 0, V3(1, 1, 1))
+	local t0 = os.clock()
+	local last = 0
+	local c
+	c = RS.Heartbeat:Connect(function()
+		local el = os.clock() - t0
+		if el > DUR or not (N.R == R and R.Model.Parent) then
+			c:Disconnect()
+			outer:Destroy()
+			core:Destroy()
+			return
+		end
+		local o = R.Eye.Position
+		local d = camAim(rp) - o
+		if d.Magnitude < 1 then return end
+		d = d.Unit
+		local hit = workspace:Raycast(o, d * 700, rp)
+		local e = hit and hit.Position or (o + d * 700)
+		local len = (e - o).Magnitude
+		local grow = math.min(el / 0.15, 1) * (1 - math.max(el - 1.3, 0) / 0.3)
+		local wd = math.max((3 + math.sin(el * 60) * 0.6) * grow, 0.05)
+		outer.Size = V3(wd * 2, wd * 2, len)
+		outer.CFrame = CFrame.lookAt(o, e) * CF(0, 0, -len / 2)
+		core.Size = V3(wd * 0.8, wd * 0.8, len)
+		core.CFrame = outer.CFrame
+		if hit and el - last > 0.12 then
+			last = el
+			flash(e, 22, 0.3)
+			N.Dust(e, 6)
+			explode(e, 10)
+		end
+	end)
+end
+
+local FN = {missiles, stomp, dash, sword, plasma, laser}
+
+-- ตัวเรียกสกิลกลาง (ใช้ได้ทั้งโหมดหุ่นและเจ็ท)
+function N.Skill(i)
+	local S = N.S
+	if not S.Riding or S.Busy or not N.R then return end
+	local list = S.Jet and N.JetCDT or CDT
+	local ct = list and list[i]
+	if not ct then return end
+	local key = (S.Jet and "J" or "R") .. i
+	if cd[key] and os.clock() < cd[key] then return end
+	cd[key] = os.clock() + ct
+	N.Cool(KEYS[i], ct)
+	if S.Jet then
+		if N.JetSkill then task.spawn(N.JetSkill, i) end
+	elseif i == 3 then
+		dash()
+	else
+		task.spawn(FN[i])
+	end
+end
+-- NEXORA GIANT ROBOT v3 | ไฟล์ 6/6 : สกิลร่างเครื่องบินเจ็ท
+-- 1 ปืนกล  2 โล่พลัง  3 เบิร์นเนอร์  4 ขีปนาวุธ  5 ระเบิดพรม
+local RS = game:GetService("RunService")
+local TS = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+repeat task.wait() until _G.NXG and _G.NXG.Ready and _G.NXG.Skill and _G.NXG.Missile and _G.NXG.Flash
+local N = _G.NXG
+local CF, V3 = CFrame.new, Vector3.new
+
+local NEON = Color3.fromRGB(255, 30, 50)
+local PALE = Color3.fromRGB(255, 210, 210)
+local NM = Enum.Material.Neon
+
+N.JetCDT = {4, 14, 8, 6, 10} -- คูลดาวน์ของแต่ละสกิล (วินาที)
+
+local function alive(R)
+	return N.R == R and R.Model.Parent and N.S.Jet
+end
+
+local function newPart(shape, color, mat, tr, size)
+	local p = Instance.new("Part")
+	if shape then p.Shape = shape end
+	p.Material = mat
+	p.Color = color
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Transparency = tr
+	p.Size = size
+	p.Parent = workspace
+	return p
+end
+
+----------------------------------------------------------------
+-- 1) ปืนกล: ยิงกระสุนแดงจากปืนที่ปีกทั้งสองข้าง 2 วินาที
+----------------------------------------------------------------
+local bullets = {}
+local loop
+
+local function ensureLoop()
+	if loop then return end
+	loop = RS.Heartbeat:Connect(function(dt)
+		for i = #bullets, 1, -1 do
+			local b = bullets[i]
+			local step = b.dir * 450 * dt
+			local hit = workspace:Raycast(b.pos, step, b.rp)
+			if hit then
+				N.Flash(hit.Position, 12, 0.25)
+				b.p:Destroy()
+				table.remove(bullets, i)
+			elseif os.clock() - b.t > 1.4 then
+				b.p:Destroy()
+				table.remove(bullets, i)
+			else
+				b.pos = b.pos + step
+				b.p.CFrame = CFrame.lookAt(b.pos, b.pos + b.dir)
+			end
+		end
+		if #bullets == 0 then
+			loop:Disconnect()
+			loop = nil
+		end
+	end)
+end
+
+local function machinegun()
+	local R = N.R
+	local rp = N.RayParams(R)
+	local DUR, RATE = 2.0, 24
+	N.Shake(DUR, 0.5)
+	local t0 = os.clock()
+	local n = 0
+	while os.clock() - t0 < DUR do
+		if not alive(R) then return end
+		n = n + 1
+		local gun = R.JetGuns[(n % #R.JetGuns) + 1]
+		local o = gun.Position + gun.CFrame.LookVector * 2
+		local aim = N.CamAim(rp)
+		local spread = V3(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 0.05
+		local dir = ((aim - o).Unit + spread).Unit
+		local p = newPart(nil, NEON, NM, 0, V3(0.6, 0.6, 7))
+		p.CFrame = CFrame.lookAt(o, o + dir)
+		bullets[#bullets + 1] = {p = p, pos = o, dir = dir, rp = rp, t = os.clock()}
+		N.Flash(o, 5, 0.1)
+		ensureLoop()
+		task.wait(1 / RATE)
+	end
+end
+
+----------------------------------------------------------------
+-- 2) โล่พลัง: ทรงกลมแดงล้อมเครื่อง 6 วินาที
+----------------------------------------------------------------
+local function shield()
+	local R = N.R
+	local S = N.S
+	if S.Shield then return end
+	S.Shield = true
+	local DUR = 6
+	local s = Instance.new("Part")
+	s.Name = "Shield"
+	s.Shape = Enum.PartType.Ball
+	s.Material = Enum.Material.ForceField
+	s.Color = NEON
+	s.Transparency = 0.35
+	s.Size = V3(10, 10, 10)
+	s.Anchored = false
+	s.CanCollide = false
+	s.CanQuery = false
+	s.CanTouch = false
+	s.Massless = true
+	s.Parent = workspace
+	local w = Instance.new("Weld")
+	w.Part0 = R.Root
+	w.Part1 = s
+	w.C0 = CF(0, 4.2 * N.SCALE, 0)
+	w.Parent = s
+	local lt = Instance.new("PointLight", s)
+	lt.Color = NEON
+	lt.Range = 50
+	lt.Brightness = 3
+	N.Ring(R.Root.Position, 200, 0.7, NEON)
+	N.Flash(R.Root.Position + V3(0, 10, 0), 90, 0.5)
+	N.Shake(0.4, 1)
+	TS:Create(s, TweenInfo.new(0.35, Enum.EasingStyle.Back), {Size = V3(75, 75, 75)}):Play()
+	local t0 = os.clock()
+	while os.clock() - t0 < DUR do
+		if not (N.R == R and R.Model.Parent) then break end
+		local el = os.clock() - t0
+		local left = DUR - el
+		local pulse = 0.45 + math.sin(el * 6) * 0.12
+		if left < 1.2 then pulse = pulse + (math.floor(el * 10) % 2) * 0.3 end -- กะพริบเตือนใกล้หมด
+		s.Transparency = math.clamp(pulse, 0.2, 0.95)
+		RS.Heartbeat:Wait()
+	end
+	if s.Parent then
+		TS:Create(s, TweenInfo.new(0.3), {Size = V3(95, 95, 95), Transparency = 1}):Play()
+		Debris:AddItem(s, 0.35)
+		if N.R == R and R.Model.Parent then N.Ring(R.Root.Position, 160, 0.5, NEON) end
+	end
+	S.Shield = false
+end
+
+----------------------------------------------------------------
+-- 3) เบิร์นเนอร์: เร่งความเร็วสุดแรง 2 วินาที
+----------------------------------------------------------------
+local function burner()
+	local R = N.R
+	local cam = workspace.CurrentCamera
+	N.JetBoostUntil = os.clock() + 2
+	N.Thrust(R, true)
+	N.Shake(2, 1.2)
+	N.Ring(R.Root.Position, 200, 0.6, NEON)
+	N.Flash(R.Root.Position, 60, 0.4)
+	TS:Create(cam, TweenInfo.new(0.3), {FieldOfView = 105}):Play()
+	task.delay(2.1, function()
+		TS:Create(cam, TweenInfo.new(0.6), {FieldOfView = 70}):Play()
+	end)
+end
+
+----------------------------------------------------------------
+-- 4) ขีปนาวุธนำวิถี 8 ลูก จากใต้ปีก
+----------------------------------------------------------------
+local function missiles()
+	local R = N.R
+	local rp = N.RayParams(R)
+	local aim = N.CamAim(rp)
+	N.Shake(0.8, 0.8)
+	for _ = 1, 4 do
+		if not alive(R) then return end
+		for gi, gun in ipairs(R.JetGuns) do
+			local o = gun.Position + V3(0, -2, 0)
+			local cf = R.Root.CFrame
+			local sd = (gi == 1) and 1 or -1
+			local rnd = V3(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 0.3
+			local d = (cf.LookVector * 0.8 + cf.RightVector * sd * 0.6 + V3(0, -0.1, 0) + rnd).Unit
+			N.Missile(o, d, aim, rp, 420)
+		end
+		task.wait(0.18)
+	end
+end
+
+----------------------------------------------------------------
+-- 5) ระเบิดพรม: ทิ้งระเบิด 8 ลูกตามเส้นทางบิน
+----------------------------------------------------------------
+local function bomb(from, rp)
+	local h = workspace:Raycast(from, V3(0, -1500, 0), rp)
+	local tp = h and h.Position or (from - V3(0, 300, 0))
+	local m = newPart(Enum.PartType.Ball, NEON, NM, 0, V3(4, 4, 4))
+	m.Position = from
+	local lt = Instance.new("PointLight", m)
+	lt.Color = NEON
+	lt.Range = 25
+	lt.Brightness = 3
+	local a0 = Instance.new("Attachment", m)
+	a0.Position = V3(2, 0, 0)
+	local a1 = Instance.new("Attachment", m)
+	a1.Position = V3(-2, 0, 0)
+	local tr = Instance.new("Trail", m)
+	tr.Attachment0 = a0
+	tr.Attachment1 = a1
+	tr.Lifetime = 0.5
+	tr.LightEmission = 1
+	tr.Color = ColorSequence.new(NEON)
+	tr.Transparency = NumberSequence.new(0, 1)
+	local fall = math.clamp((from.Y - tp.Y) / 250, 0.4, 2.5)
+	local tw = TS:Create(m, TweenInfo.new(fall, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position = tp + V3(0, 2, 0)})
+	tw.Completed:Once(function()
+		m:Destroy()
+		N.Explode(tp, 34)
+		N.Ring(tp + V3(0, 1, 0), 140, 0.7, NEON)
+		N.Dust(tp + V3(0, 2, 0), 30)
+		N.Shake(0.4, 1.5)
+	end)
+	tw:Play()
+end
+
+local function carpet()
+	local R = N.R
+	local rp = N.RayParams(R)
+	for _ = 1, 8 do
+		if not alive(R) then return end
+		bomb(R.Root.Position - V3(0, 6, 0), rp)
+		task.wait(0.2)
+	end
+end
+
+local FN = {machinegun, shield, burner, missiles, carpet}
+
+function N.JetSkill(i)
+	local f = FN[i]
+	if f then f() end
+end
